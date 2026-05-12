@@ -812,6 +812,7 @@ function createSettingsForApiProfile(settings: AppSettings, profile: ApiProfile)
     apiMode: profile.apiMode,
     codexCli: profile.codexCli,
     apiProxy: profile.apiProxy,
+    imageInputMode: profile.imageInputMode,
     profiles: normalized.profiles.map((item) => item.id === profile.id ? profile : item),
     activeProfileId: profile.id,
   })

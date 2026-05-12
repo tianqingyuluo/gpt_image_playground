@@ -5,6 +5,7 @@ import { isApiProxyAvailable, isApiProxyLocked, readClientDevProxyConfig } from 
 import { useStore, exportData, importData, clearData } from '../store'
 import {
   createDefaultOpenAIProfile,
+  DEFAULT_IMAGE_INPUT_MODE,
   DEFAULT_FAL_BASE_URL,
   DEFAULT_FAL_MODEL,
   DEFAULT_IMAGES_MODEL,
@@ -164,7 +165,8 @@ function isPristineNewOpenAIProfile(profile: ApiProfile) {
     profile.timeout === DEFAULT_SETTINGS.timeout &&
     profile.apiMode === 'images' &&
     profile.codexCli === false &&
-    profile.apiProxy === defaultProfile.apiProxy
+    profile.apiProxy === defaultProfile.apiProxy &&
+    profile.imageInputMode === DEFAULT_IMAGE_INPUT_MODE
 }
 
 function getImportedProfileFromMergedSettings(
@@ -332,6 +334,7 @@ export default function SettingsModal() {
   const activeProviderIsOpenAICompatible = isOpenAICompatibleProvider(draft, activeProfile.provider)
   const activeProviderUsesApiUrl = activeProviderIsOpenAICompatible || activeProfile.provider === 'fal'
   const activeCustomProvider = draft.customProviders.find((provider) => provider.id === activeProfile.provider)
+  const canConfigureImageInputMode = activeProfile.provider === 'openai' && (activeProfile.apiMode ?? DEFAULT_SETTINGS.apiMode) === 'images'
   const defaultProviderOrder = ['openai', 'fal', ...draft.customProviders.map(p => p.id)]
   const providerOrder = draft.providerOrder || defaultProviderOrder
 
@@ -523,6 +526,7 @@ export default function SettingsModal() {
       const model = profile.model.trim() || getDefaultModelForMode(profile.apiMode)
       url.searchParams.set('model', !options.includeApiKey && options.useNewApiModel ? '{model}' : model)
       if (profile.codexCli) url.searchParams.set('codexCli', 'true')
+      if (profile.imageInputMode === 'rc-generation') url.searchParams.set('imageInputMode', 'rc-generation')
 
       let result = url.toString()
       if (!options.includeApiKey) {
@@ -1551,6 +1555,24 @@ export default function SettingsModal() {
                   )}
                 </div>
               </label>
+
+              {canConfigureImageInputMode && (
+                <div className="block">
+                  <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">带图请求路径</span>
+                  <Select
+                    value={activeProfile.imageInputMode ?? DEFAULT_IMAGE_INPUT_MODE}
+                    onChange={(value) => updateActiveProfile({ imageInputMode: value as ApiProfile['imageInputMode'] }, true)}
+                    options={[
+                      { label: '官方 /v1/images/edits', value: 'official-edit' },
+                      { label: 'RC /v1/images/generations', value: 'rc-generation' },
+                    ]}
+                    className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
+                  />
+                  <div data-selectable-text className="mt-1.5 text-xs text-gray-500 dark:text-gray-500">
+                    RC 模式会在上传参考图时调用 <code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">images/generations</code>，并用 JSON 字段 <code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">image</code> 传入参考图；带遮罩时仍使用官方 edits。
+                  </div>
+                </div>
+              )}
 
               {activeProviderIsOpenAICompatible && (
                 <div className="block">

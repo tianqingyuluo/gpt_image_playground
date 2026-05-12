@@ -82,6 +82,44 @@ function createRequestHeaders(profile: ApiProfile): Record<string, string> {
   }
 }
 
+function createGenerationBody(
+  opts: CallApiOptions,
+  profile: ApiProfile,
+  prompt: string,
+  inputImageDataUrls: string[] = [],
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    model: profile.model,
+    prompt,
+    size: opts.params.size,
+  }
+
+  if (inputImageDataUrls.length) {
+    body.image = inputImageDataUrls.length === 1 ? inputImageDataUrls[0] : inputImageDataUrls
+    body.response_format = profile.responseFormatB64Json ? 'b64_json' : 'url'
+    return body
+  }
+
+  body.output_format = opts.params.output_format
+  body.moderation = opts.params.moderation
+
+  if (!profile.codexCli) {
+    body.quality = opts.params.quality
+  }
+
+  if (opts.params.output_format !== 'png' && opts.params.output_compression != null) {
+    body.output_compression = opts.params.output_compression
+  }
+  if (opts.params.n > 1) {
+    body.n = opts.params.n
+  }
+  if (profile.responseFormatB64Json) {
+    body.response_format = 'b64_json'
+  }
+
+  return body
+}
+
 function createResponsesImageTool(
   params: TaskParams,
   isEdit: boolean,
@@ -273,6 +311,7 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
     ? `${PROMPT_REWRITE_GUARD_PREFIX}\n${originalPrompt}`
     : originalPrompt
   const isEdit = inputImageDataUrls.length > 0
+  const useGenerationImageInput = isEdit && !opts.maskDataUrl && profile.imageInputMode === 'rc-generation'
   const mime = MIME_MAP[params.output_format] || 'image/png'
   const proxyConfig = readClientDevProxyConfig()
   const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
@@ -285,7 +324,21 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
   try {
     let response: Response
 
-    if (isEdit) {
+    if (useGenerationImageInput) {
+      assertImageInputPayloadSize(
+        inputImageDataUrls.reduce((sum, dataUrl) => sum + getDataUrlEncodedByteSize(dataUrl), 0),
+      )
+      response = await fetch(buildApiUrl(profile.baseUrl, paths.generationPath, proxyConfig, useApiProxy), {
+        method: 'POST',
+        headers: {
+          ...requestHeaders,
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+        body: JSON.stringify(createGenerationBody(opts, profile, prompt, inputImageDataUrls)),
+        signal: controller.signal,
+      })
+    } else if (isEdit) {
       const formData = new FormData()
       formData.append('model', profile.model)
       formData.append('prompt', prompt)
@@ -343,28 +396,6 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
         signal: controller.signal,
       })
     } else {
-      const body: Record<string, unknown> = {
-        model: profile.model,
-        prompt,
-        size: params.size,
-        output_format: params.output_format,
-        moderation: params.moderation,
-      }
-
-      if (!profile.codexCli) {
-        body.quality = params.quality
-      }
-
-      if (params.output_format !== 'png' && params.output_compression != null) {
-        body.output_compression = params.output_compression
-      }
-      if (params.n > 1) {
-        body.n = params.n
-      }
-      if (profile.responseFormatB64Json) {
-        body.response_format = 'b64_json'
-      }
-
       response = await fetch(buildApiUrl(profile.baseUrl, paths.generationPath, proxyConfig, useApiProxy), {
         method: 'POST',
         headers: {
@@ -372,7 +403,7 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, cu
           'Content-Type': 'application/json',
         },
         cache: 'no-store',
-        body: JSON.stringify(body),
+        body: JSON.stringify(createGenerationBody(opts, profile, prompt)),
         signal: controller.signal,
       })
     }

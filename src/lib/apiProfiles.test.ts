@@ -25,6 +25,7 @@ describe('mergeImportedSettings', () => {
       apiMode: 'responses',
       codexCli: true,
       apiProxy: true,
+      imageInputMode: 'rc-generation',
     })
 
     expect(merged.profiles).toHaveLength(1)
@@ -39,6 +40,7 @@ describe('mergeImportedSettings', () => {
       apiMode: 'responses',
       codexCli: true,
       apiProxy: true,
+      imageInputMode: 'rc-generation',
     })
   })
 
@@ -534,6 +536,7 @@ describe('custom providers', () => {
       baseUrl: 'https://api.compat.example.com/v1',
       model: 'custom-openai-model',
       apiProxy: false,
+      imageInputMode: 'rc-generation',
     })
 
     const falProfile = switchApiProfileProvider(openaiProfile, 'fal')
@@ -543,5 +546,27 @@ describe('custom providers', () => {
     expect(restoredProfile.baseUrl).toBe('https://api.compat.example.com/v1')
     expect(restoredProfile.model).toBe('custom-openai-model')
     expect(restoredProfile.apiProxy).toBe(false)
+    expect(restoredProfile.imageInputMode).toBe('rc-generation')
+  })
+
+  it('normalizes invalid image input modes to the official edits endpoint', () => {
+    const settings = normalizeSettings({
+      profiles: [{
+        id: 'profile-openai',
+        name: 'OpenAI',
+        provider: 'openai',
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'key',
+        model: DEFAULT_IMAGES_MODEL,
+        timeout: 300,
+        apiMode: 'images',
+        codexCli: false,
+        apiProxy: false,
+        imageInputMode: 'unknown',
+      }],
+      activeProfileId: 'profile-openai',
+    })
+
+    expect(settings.profiles[0].imageInputMode).toBe('official-edit')
   })
 })

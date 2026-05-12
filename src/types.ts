@@ -4,6 +4,7 @@ export type ApiMode = 'images' | 'responses'
 export type BuiltInApiProvider = 'openai' | 'fal'
 export type ApiProvider = BuiltInApiProvider | string
 export type CustomProviderTemplate = 'http-image'
+export type ImageInputMode = 'official-edit' | 'rc-generation'
 
 export type CustomProviderRequestMethod = 'GET' | 'POST'
 export type CustomProviderContentType = 'json' | 'multipart'
@@ -63,8 +64,9 @@ export interface ApiProfile {
   apiMode: ApiMode
   codexCli: boolean
   apiProxy: boolean
+  imageInputMode: ImageInputMode
   responseFormatB64Json?: boolean
-  providerDrafts?: Partial<Record<ApiProvider, Partial<Pick<ApiProfile, 'baseUrl' | 'model' | 'apiMode' | 'codexCli' | 'apiProxy' | 'responseFormatB64Json'>>>>
+  providerDrafts?: Partial<Record<ApiProvider, Partial<Pick<ApiProfile, 'baseUrl' | 'model' | 'apiMode' | 'codexCli' | 'apiProxy' | 'imageInputMode' | 'responseFormatB64Json'>>>>
 }
 
 export interface AppSettings {
@@ -76,6 +78,7 @@ export interface AppSettings {
   apiMode: ApiMode
   codexCli: boolean
   apiProxy: boolean
+  imageInputMode: ImageInputMode
   customProviders: CustomProviderDefinition[]
   providerOrder?: string[]
   clearInputAfterSubmit: boolean

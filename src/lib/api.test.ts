@@ -203,6 +203,70 @@ describe('callImageApi', () => {
     )
   })
 
+  it('uses the official edits endpoint for image input by default', async () => {
+    const originalFetch = globalThis.fetch
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      if (typeof input === 'string' && input.startsWith('data:')) return originalFetch(input, init)
+      return Promise.resolve(new Response(JSON.stringify({
+        data: [{ b64_json: 'aW1hZ2U=' }],
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+    })
+
+    await callImageApi({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+        baseUrl: 'http://api.example.com/v1',
+      },
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: ['data:image/png;base64,aW5wdXQ='],
+    })
+
+    const apiCall = fetchMock.mock.calls.find(([url]) => url === 'http://api.example.com/v1/images/edits')
+    expect(apiCall).toBeTruthy()
+    const [url, init] = apiCall!
+    expect(url).toBe('http://api.example.com/v1/images/edits')
+    expect((init as RequestInit).method).toBe('POST')
+    expect((init as RequestInit).body).toBeInstanceOf(FormData)
+  })
+
+  it('uses the RC generations endpoint with JSON image input when configured', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: [{ url: 'data:image/png;base64,aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        apiKey: 'test-key',
+        baseUrl: 'http://api.example.com/v1',
+        imageInputMode: 'rc-generation',
+      },
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS, size: '1024x1024', quality: 'high', output_format: 'webp', n: 3 },
+      inputImageDataUrls: ['data:image/png;base64,aW5wdXQ='],
+    })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(url).toBe('http://api.example.com/v1/images/generations')
+    expect((init as RequestInit).headers).toMatchObject({ 'Content-Type': 'application/json' })
+    expect(body).toEqual({
+      model: DEFAULT_SETTINGS.model,
+      prompt: 'prompt',
+      image: 'data:image/png;base64,aW5wdXQ=',
+      size: '1024x1024',
+      response_format: 'url',
+    })
+  })
+
   it('polls custom async tasks immediately and keeps polling after transient network errors', async () => {
     vi.useFakeTimers()
     const onCustomTaskEnqueued = vi.fn()

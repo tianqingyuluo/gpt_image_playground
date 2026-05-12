@@ -9,7 +9,7 @@ import {
   normalizeSettings,
 } from './apiProfiles'
 
-const URL_SETTING_KEYS = ['settings', 'apiUrl', 'apiKey', 'codexCli', 'apiMode', 'model']
+const URL_SETTING_KEYS = ['settings', 'apiUrl', 'apiKey', 'codexCli', 'apiMode', 'model', 'imageInputMode']
 
 function getProfileDedupKey(profile: Pick<AppSettings['profiles'][number], 'provider' | 'baseUrl' | 'apiKey' | 'model' | 'apiMode'>) {
   return JSON.stringify([
@@ -87,8 +87,12 @@ export function buildSettingsFromUrlParams(currentSettings: Partial<AppSettings>
   const apiModeParam = searchParams.get('apiMode')
   const modelParam = searchParams.get('model')
   const apiMode: ApiMode | undefined = apiModeParam === 'images' || apiModeParam === 'responses' ? apiModeParam : undefined
+  const imageInputModeParam = searchParams.get('imageInputMode')
+  const imageInputMode = imageInputModeParam === 'rc-generation' || imageInputModeParam === 'official-edit'
+    ? imageInputModeParam
+    : undefined
 
-  const hasLegacyOpenAIParams = apiUrlParam !== null || apiKeyParam !== null || codexCliParam !== null || apiMode !== undefined || modelParam !== null
+  const hasLegacyOpenAIParams = apiUrlParam !== null || apiKeyParam !== null || codexCliParam !== null || apiMode !== undefined || modelParam !== null || imageInputMode !== undefined
   const settings = importedSettings == null
     ? normalizeSettings(currentSettings)
     : activateFirstImportedProfile(mergeImportedSettings(currentSettings, importedSettings), importedSettings)
@@ -105,6 +109,7 @@ export function buildSettingsFromUrlParams(currentSettings: Partial<AppSettings>
     if (apiKeyParam !== null) profile.apiKey = apiKeyParam.trim()
     if (modelParam !== null && modelParam.trim()) profile.model = modelParam.trim()
     if (codexCliParam !== null) profile.codexCli = codexCliParam.trim().toLowerCase() === 'true'
+    if (imageInputMode) profile.imageInputMode = imageInputMode
 
     const existingProfile = settings.profiles.find((item) => getProfileDedupKey(item) === getProfileDedupKey(profile))
     if (existingProfile) {
