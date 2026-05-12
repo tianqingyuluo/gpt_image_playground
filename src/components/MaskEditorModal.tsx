@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { ensureImageCached, useStore } from '../store'
 import { canvasToBlob, loadImage } from '../lib/canvasImage'
 import { storeImage } from '../lib/db'
+import { disablesMaskEditing, getActiveApiProfile } from '../lib/apiProfiles'
 import { prepareMaskTargetDataUrl, replaceMaskTargetImage } from '../lib/maskPreprocess'
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
@@ -103,6 +104,8 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 export default function MaskEditorModal() {
   const imageId = useStore((s) => s.maskEditorImageId)
   const setMaskEditorImageId = useStore((s) => s.setMaskEditorImageId)
+  const settings = useStore((s) => s.settings)
+  const reusedTaskApiProfileId = useStore((s) => s.reusedTaskApiProfileId)
   const maskDraft = useStore((s) => s.maskDraft)
   const setMaskDraft = useStore((s) => s.setMaskDraft)
   const clearMaskDraft = useStore((s) => s.clearMaskDraft)
@@ -147,6 +150,13 @@ export default function MaskEditorModal() {
   const [isPanning, setIsPanning] = useState(false)
   const [sliderAnchor, setSliderAnchor] = useState<SliderAnchor | null>(null)
   const [showMaskInfo, setShowMaskInfo] = useState(false)
+  const maskEditingDisabled = useMemo(() => {
+    const activeProfile = getActiveApiProfile(settings)
+    const profile = settings.reuseTaskApiProfileTemporarily && reusedTaskApiProfileId
+      ? settings.profiles.find((item) => item.id === reusedTaskApiProfileId) ?? activeProfile
+      : activeProfile
+    return disablesMaskEditing(profile)
+  }, [reusedTaskApiProfileId, settings])
 
   const close = () => {
     if (isSaving) return
@@ -154,6 +164,12 @@ export default function MaskEditorModal() {
   }
   useCloseOnEscape(Boolean(imageId), close)
   usePreventBackgroundScroll(Boolean(imageId))
+
+  useEffect(() => {
+    if (imageId && maskEditingDisabled) {
+      setMaskEditorImageId(null)
+    }
+  }, [imageId, maskEditingDisabled, setMaskEditorImageId])
 
   useEffect(() => () => {
     if (maskInfoTimerRef.current != null) {
@@ -783,7 +799,7 @@ export default function MaskEditorModal() {
   const handleSave = async () => {
     const canvas = maskCanvasRef.current
     const savingSessionId = activeSessionIdRef.current
-    if (!canvas || !sourceDataUrl || !imageId || !isReady || isSaving || !savingSessionId) return
+    if (!canvas || !sourceDataUrl || !imageId || !isReady || isSaving || !savingSessionId || maskEditingDisabled) return
 
     const token = ++saveTokenRef.current
     const savingImageId = imageId

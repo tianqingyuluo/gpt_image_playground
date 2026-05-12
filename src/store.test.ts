@@ -126,6 +126,23 @@ describe('mask draft lifecycle in store actions', () => {
     expect(useStore.getState().maskDraft).toBeNull()
   })
 
+  it('disables mask draft and editor state in RC image input mode', () => {
+    useStore.getState().setSettings({
+      imageInputMode: 'rc-generation',
+    })
+
+    useStore.getState().setMaskDraft({
+      targetImageId: imageA.id,
+      maskDataUrl: 'data:image/png;base64,mask',
+      updatedAt: 1,
+    })
+    useStore.getState().setMaskEditorImageId(imageA.id)
+
+    const state = useStore.getState()
+    expect(state.maskDraft).toBeNull()
+    expect(state.maskEditorImageId).toBeNull()
+  })
+
   it('preserves selected image mentions when replacing a mask target with an equivalent image id', () => {
     const replacement = { id: 'image-a-replacement', dataUrl: imageA.dataUrl }
     const prompt = `参考 ${getSelectedImageMentionLabel(0)} 生成`
@@ -281,6 +298,37 @@ describe('reused task API profile', () => {
     const state = useStore.getState()
     expect(state.inputImages.map((img) => img.id)).toEqual([imageA.id, imageB.id])
     expect(state.prompt).toBe(taskPrompt)
+  })
+
+  it('does not restore task masks when the reused OpenAI profile uses RC image input mode', async () => {
+    await clearImages()
+    await putImage(imageA)
+    await putImage({ id: 'mask-a', dataUrl: 'data:image/png;base64,mask', source: 'mask', createdAt: 1 })
+    const rcProfile = createDefaultOpenAIProfile({
+      id: 'rc-profile',
+      name: 'RC 配置',
+      apiKey: 'openai-key',
+      imageInputMode: 'rc-generation',
+    })
+    useStore.setState({
+      settings: normalizeSettings({
+        ...useStore.getState().settings,
+        profiles: [openaiProfile, falProfile, rcProfile],
+      }),
+    })
+
+    await reuseConfig(task({
+      apiProvider: 'openai',
+      apiProfileId: rcProfile.id,
+      inputImageIds: [imageA.id],
+      maskTargetImageId: imageA.id,
+      maskImageId: 'mask-a',
+    }))
+
+    const state = useStore.getState()
+    expect(state.reusedTaskApiProfileId).toBe(rcProfile.id)
+    expect(state.inputImages.map((img) => img.id)).toEqual([imageA.id])
+    expect(state.maskDraft).toBeNull()
   })
 
   it('clears temporary reuse when switching current settings to the reused API profile', async () => {

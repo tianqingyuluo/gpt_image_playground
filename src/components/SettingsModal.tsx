@@ -1569,7 +1569,7 @@ export default function SettingsModal() {
                     className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
                   />
                   <div data-selectable-text className="mt-1.5 text-xs text-gray-500 dark:text-gray-500">
-                    RC 模式会在上传参考图时调用 <code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">images/generations</code>，并用 JSON 字段 <code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">image</code> 传入参考图；带遮罩时仍使用官方 edits。
+                    RC 模式会在上传参考图时调用 <code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">images/generations</code>，并用 JSON 字段 <code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">image</code> 传入参考图；遮罩功能在该模式下不可用。
                   </div>
                 </div>
               )}

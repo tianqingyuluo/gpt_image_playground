@@ -2,7 +2,7 @@ import { useRef, useEffect, useCallback, useState, useMemo, type ReactNode } fro
 import { createPortal } from 'react-dom'
 import { useStore, submitTask, addImageFromFile, updateTaskInStore, removeMultipleTasks, getCachedImage, ensureImageCached } from '../store'
 import { DEFAULT_PARAMS } from '../types'
-import { getActiveApiProfile, normalizeSettings } from '../lib/apiProfiles'
+import { disablesMaskEditing, getActiveApiProfile, normalizeSettings } from '../lib/apiProfiles'
 import { DEFAULT_FAL_IMAGE_SIZE, getChangedParams, getOutputImageLimitForSettings, normalizeParamsForSettings } from '../lib/paramCompatibility'
 import { getAtImageQuery, getImageMentionLabel, getPromptIndexFromVisibleIndex, getPromptMentionParts, getSelectedImageMentionLabel, imageMentionMatches, insertImageMentionAtVisibleRange, isCursorInSelectedImageMention, stripImageMentionMarkers } from '../lib/promptImageMentions'
 import { normalizeImageSize } from '../lib/size'
@@ -467,6 +467,7 @@ export default function InputBar() {
   const isFalProvider = activeProvider === 'fal'
   const moderationDisabled = activeProfile.apiMode === 'responses' || isFalProvider
   const compressionDisabled = params.output_format === 'png' || isFalProvider
+  const maskEditingDisabled = disablesMaskEditing(activeProfile)
   const outputImageLimit = getOutputImageLimitForSettings(effectiveSettings)
   const isFalTextToImage = isFalProvider && inputImages.length === 0
   const nLimitHintText = isFalProvider
@@ -488,12 +489,14 @@ export default function InputBar() {
         { label: 'high', value: 'high' },
       ]
   const atImageLimit = inputImages.length >= API_MAX_IMAGES
-  const maskTargetImage = maskDraft
-    ? inputImages.find((img) => img.id === maskDraft.targetImageId) ?? null
+  const activeMaskDraft = maskEditingDisabled ? null : maskDraft
+  const maskTargetImage = activeMaskDraft
+    ? inputImages.find((img) => img.id === activeMaskDraft.targetImageId) ?? null
     : null
   const referenceImages = maskTargetImage
     ? inputImages.filter((img) => img.id !== maskTargetImage.id)
     : inputImages
+  const hasActiveMaskDraft = Boolean(activeMaskDraft)
   const cursorPosition = cursorPos
   const visiblePrompt = stripImageMentionMarkers(prompt)
   const atImageQuery = isCursorInSelectedImageMention(prompt, cursorPosition)
@@ -564,6 +567,12 @@ export default function InputBar() {
       setParams(patch)
     }
   }, [inputImages.length, params, effectiveSettings, setParams])
+
+  useEffect(() => {
+    if (!maskEditingDisabled) return
+    if (maskDraft) clearMaskDraft()
+    setMaskEditorImageId(null)
+  }, [clearMaskDraft, maskDraft, maskEditingDisabled, setMaskEditorImageId])
 
   useEffect(() => () => {
     if (compressionHintTimerRef.current != null) {
@@ -1202,8 +1211,8 @@ export default function InputBar() {
   }
 
   const renderImageThumb = (img: (typeof inputImages)[number], idx: number) => {
-    const isMaskTarget = maskDraft?.targetImageId === img.id
-    const canEdit = !maskTargetImage || isMaskTarget
+    const isMaskTarget = activeMaskDraft?.targetImageId === img.id
+    const canEdit = !maskEditingDisabled && (!maskTargetImage || isMaskTarget)
     const imageHintText = isMaskTarget ? '遮罩图必须为第一张图' : ''
     const displaySrc = isMaskTarget && maskPreviewUrl ? maskPreviewUrl : img.dataUrl
     const isImageDragging = imageDragIndex === idx
@@ -1358,7 +1367,7 @@ export default function InputBar() {
           }`}
           onClick={() => {
             if (suppressImageClickRef.current) return
-            if (isMaskTarget) {
+            if (isMaskTarget && !maskEditingDisabled) {
               setMaskEditorImageId(img.id)
               return
             }
@@ -1747,7 +1756,7 @@ export default function InputBar() {
                 </div>
                 {mobileCollapsed && (
                   <div className="text-xs text-gray-400 dark:text-gray-500 mb-2 ml-1">
-                    {maskDraft ? `1 张遮罩主图 · ${referenceImages.length} 张参考图` : `${inputImages.length} 张参考图`}
+                    {hasActiveMaskDraft ? `1 张遮罩主图 · ${referenceImages.length} 张参考图` : `${inputImages.length} 张参考图`}
                   </div>
                 )}
               </>
@@ -1876,7 +1885,7 @@ export default function InputBar() {
                         ? 'bg-gray-300 dark:bg-white/[0.06] text-white cursor-pointer'
                         : 'bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed'
                     }`}
-                    title={hasSubmitApiConfig ? (maskDraft ? '遮罩编辑 (Ctrl+Enter)' : '生成 (Ctrl+Enter)') : '请先配置 API'}
+                    title={hasSubmitApiConfig ? (hasActiveMaskDraft ? '遮罩编辑 (Ctrl+Enter)' : '生成 (Ctrl+Enter)') : '请先配置 API'}
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
@@ -1934,7 +1943,7 @@ export default function InputBar() {
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                     </svg>
-                    {maskDraft ? '遮罩编辑' : '生成图像'}
+                    {hasActiveMaskDraft ? '遮罩编辑' : '生成图像'}
                   </button>
                 </div>
               </div>

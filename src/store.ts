@@ -10,7 +10,7 @@ import type {
   ExportData,
 } from './types'
 import { DEFAULT_PARAMS } from './types'
-import { DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, mergeImportedSettings, normalizeSettings, validateApiProfile } from './lib/apiProfiles'
+import { DEFAULT_SETTINGS, disablesMaskEditing, getActiveApiProfile, getCustomProviderDefinition, mergeImportedSettings, normalizeSettings, validateApiProfile } from './lib/apiProfiles'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import {
@@ -263,6 +263,14 @@ function orderImagesWithMaskFirst(images: InputImage[], maskTargetImageId: strin
   return next
 }
 
+function isMaskEditingDisabledForState(state: Pick<AppState, 'settings' | 'reusedTaskApiProfileId'>) {
+  const settings = normalizeSettings(state.settings)
+  const profile = settings.reuseTaskApiProfileTemporarily && state.reusedTaskApiProfileId
+    ? settings.profiles.find((item) => item.id === state.reusedTaskApiProfileId) ?? getActiveApiProfile(state.settings)
+    : getActiveApiProfile(state.settings)
+  return disablesMaskEditing(profile)
+}
+
 function countSuccessfulOutputImages(tasks: TaskRecord[]) {
   return tasks.reduce((count, task) => count + (task.status === 'done' ? task.outputImages.length : 0), 0)
 }
@@ -441,7 +449,8 @@ export const useStore = create<AppState>()(
           incoming.timeout !== undefined ||
           incoming.apiMode !== undefined ||
           incoming.codexCli !== undefined ||
-          incoming.apiProxy !== undefined
+          incoming.apiProxy !== undefined ||
+          incoming.imageInputMode !== undefined
         const merged = normalizeSettings({ ...previous, ...incoming })
         if (hasLegacyOverrides && incoming.profiles === undefined) {
           merged.profiles = merged.profiles.map((profile) =>
@@ -455,17 +464,21 @@ export const useStore = create<AppState>()(
                   apiMode: incoming.apiMode === 'images' || incoming.apiMode === 'responses' ? incoming.apiMode : profile.apiMode,
                   codexCli: incoming.codexCli ?? profile.codexCli,
                   apiProxy: incoming.apiProxy ?? profile.apiProxy,
+                  imageInputMode: incoming.imageInputMode === 'rc-generation' || incoming.imageInputMode === 'official-edit' ? incoming.imageInputMode : profile.imageInputMode,
                 }
               : profile,
           )
         }
         const settings = normalizeSettings(merged)
         const shouldClearReusedProfile = st.reusedTaskApiProfileId && settings.activeProfileId === st.reusedTaskApiProfileId
+        const reusedTaskApiProfileId = shouldClearReusedProfile ? null : st.reusedTaskApiProfileId
+        const shouldClearMask = isMaskEditingDisabledForState({ settings, reusedTaskApiProfileId })
         return {
           settings,
           ...(shouldClearReusedProfile
             ? { reusedTaskApiProfileId: null, reusedTaskApiProfileName: null, reusedTaskApiProfileMissing: false }
             : {}),
+          ...(shouldClearMask ? { maskDraft: null, maskEditorImageId: null } : {}),
         }
       }),
       dismissedCodexCliPrompts: [],
@@ -536,6 +549,9 @@ export const useStore = create<AppState>()(
       maskDraft: null,
       setMaskDraft: (maskDraft) =>
         set((s) => {
+          if (maskDraft && isMaskEditingDisabledForState(s)) {
+            return { maskDraft: null, maskEditorImageId: null }
+          }
           const inputImages = orderImagesWithMaskFirst(s.inputImages, maskDraft?.targetImageId)
           return {
             maskDraft,
@@ -547,7 +563,12 @@ export const useStore = create<AppState>()(
       maskEditorImageId: null,
       setMaskEditorImageId: (maskEditorImageId) => {
         if (maskEditorImageId) dismissAllTooltips()
-        set({ maskEditorImageId })
+        set((s) => {
+          if (maskEditorImageId && isMaskEditingDisabledForState(s)) {
+            return { maskEditorImageId: null, maskDraft: null }
+          }
+          return { maskEditorImageId }
+        })
       },
 
       // Params
@@ -556,10 +577,17 @@ export const useStore = create<AppState>()(
       reusedTaskApiProfileId: null,
       reusedTaskApiProfileName: null,
       reusedTaskApiProfileMissing: false,
-      setReusedTaskApiProfile: (profileId, missing = false, profileName = null) => set({
-        reusedTaskApiProfileId: profileId,
-        reusedTaskApiProfileName: profileName,
-        reusedTaskApiProfileMissing: missing,
+      setReusedTaskApiProfile: (profileId, missing = false, profileName = null) => set((s) => {
+        const shouldClearMask = isMaskEditingDisabledForState({
+          settings: s.settings,
+          reusedTaskApiProfileId: profileId,
+        })
+        return {
+          reusedTaskApiProfileId: profileId,
+          reusedTaskApiProfileName: profileName,
+          reusedTaskApiProfileMissing: missing,
+          ...(shouldClearMask ? { maskDraft: null, maskEditorImageId: null } : {}),
+        }
       }),
 
       // Tasks
@@ -1136,11 +1164,16 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
   let orderedInputImages = inputImages
   let maskImageId: string | null = null
   let maskTargetImageId: string | null = null
+  const activeProfileDisablesMask = disablesMaskEditing(activeProfile)
+  const effectiveMaskDraft = activeProfileDisablesMask ? null : maskDraft
+  if (activeProfileDisablesMask && maskDraft) {
+    useStore.getState().clearMaskDraft()
+  }
 
-  if (maskDraft) {
+  if (effectiveMaskDraft) {
     try {
-      orderedInputImages = orderInputImagesForMask(inputImages, maskDraft.targetImageId)
-      const coverage = await validateMaskMatchesImage(maskDraft.maskDataUrl, orderedInputImages[0].dataUrl)
+      orderedInputImages = orderInputImagesForMask(inputImages, effectiveMaskDraft.targetImageId)
+      const coverage = await validateMaskMatchesImage(effectiveMaskDraft.maskDataUrl, orderedInputImages[0].dataUrl)
       if (coverage === 'full' && !options.allowFullMask) {
         setConfirmDialog({
           title: '确认编辑整张图片？',
@@ -1153,11 +1186,11 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
         })
         return
       }
-      maskImageId = await storeImage(maskDraft.maskDataUrl, 'mask')
-      cacheImage(maskImageId, maskDraft.maskDataUrl)
-      maskTargetImageId = maskDraft.targetImageId
+      maskImageId = await storeImage(effectiveMaskDraft.maskDataUrl, 'mask')
+      cacheImage(maskImageId, effectiveMaskDraft.maskDataUrl)
+      maskTargetImageId = effectiveMaskDraft.targetImageId
     } catch (err) {
-      if (!inputImages.some((img) => img.id === maskDraft.targetImageId)) {
+      if (!inputImages.some((img) => img.id === effectiveMaskDraft.targetImageId)) {
         useStore.getState().clearMaskDraft()
       }
       showToast(err instanceof Error ? err.message : String(err), 'error')
@@ -1414,6 +1447,7 @@ export async function retryTask(task: TaskRecord) {
   const { settings } = useStore.getState()
   const activeProfile = getActiveApiProfile(settings)
   const normalizedParams = normalizeParamsForSettings(task.params, settings, { hasInputImages: task.inputImageIds.length > 0 })
+  const maskDisabled = disablesMaskEditing(activeProfile)
   const taskId = genId()
   const newTask: TaskRecord = {
     id: taskId,
@@ -1424,8 +1458,8 @@ export async function retryTask(task: TaskRecord) {
     apiProfileName: activeProfile.name,
     apiModel: activeProfile.model,
     inputImageIds: [...task.inputImageIds],
-    maskTargetImageId: task.maskTargetImageId ?? null,
-    maskImageId: task.maskImageId ?? null,
+    maskTargetImageId: maskDisabled ? null : task.maskTargetImageId ?? null,
+    maskImageId: maskDisabled ? null : task.maskImageId ?? null,
     outputImages: [],
     status: 'running',
     error: null,
@@ -1451,6 +1485,7 @@ export async function reuseConfig(task: TaskRecord) {
   const missingReusedProfile = normalizedSettings.reuseTaskApiProfileTemporarily && !matchedProfile
   const taskProfileName = matchedProfile?.name ?? getTaskApiProfileName(task)
   const paramsSettings = shouldTemporarilyReuseProfile && matchedProfile ? createSettingsForApiProfile(normalizedSettings, matchedProfile) : normalizedSettings
+  const maskDisabled = disablesMaskEditing(getActiveApiProfile(paramsSettings))
 
   setParams(normalizeParamsForSettings(task.params, paramsSettings, { hasInputImages: task.inputImageIds.length > 0 }))
   setReusedTaskApiProfile(
@@ -1471,7 +1506,7 @@ export async function reuseConfig(task: TaskRecord) {
   setInputImages(imgs)
   setPrompt(task.prompt)
   const maskTargetImageId = task.maskTargetImageId ?? (task.maskImageId ? task.inputImageIds[0] : null)
-  if (maskTargetImageId && task.maskImageId && imgs.some((img) => img.id === maskTargetImageId)) {
+  if (!maskDisabled && maskTargetImageId && task.maskImageId && imgs.some((img) => img.id === maskTargetImageId)) {
     const maskDataUrl = await ensureImageCached(task.maskImageId)
     if (maskDataUrl) {
       setMaskDraft({

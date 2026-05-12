@@ -91,6 +91,10 @@ function normalizeImageInputMode(value: unknown, fallback: ImageInputMode = DEFA
   return value === 'rc-generation' || value === 'official-edit' ? value : fallback
 }
 
+export function disablesMaskEditing(profile: Pick<ApiProfile, 'provider' | 'apiMode' | 'imageInputMode'>): boolean {
+  return profile.provider === 'openai' && profile.apiMode === 'images' && profile.imageInputMode === 'rc-generation'
+}
+
 function normalizeContentType(value: unknown, fallback: CustomProviderContentType = 'json'): CustomProviderContentType {
   return value === 'multipart' ? 'multipart' : fallback
 }
