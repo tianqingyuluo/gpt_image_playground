@@ -261,7 +261,7 @@ describe('callImageApi', () => {
     expect(body).toEqual({
       model: DEFAULT_SETTINGS.model,
       prompt: 'prompt',
-      image: 'data:image/png;base64,aW5wdXQ=',
+      image: ['data:image/png;base64,aW5wdXQ='],
       size: '1024x1024',
       response_format: 'url',
     })

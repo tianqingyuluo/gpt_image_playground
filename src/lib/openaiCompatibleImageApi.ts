@@ -95,7 +95,7 @@ function createGenerationBody(
   }
 
   if (inputImageDataUrls.length) {
-    body.image = inputImageDataUrls.length === 1 ? inputImageDataUrls[0] : inputImageDataUrls
+    body.image = inputImageDataUrls
     body.response_format = profile.responseFormatB64Json ? 'b64_json' : 'url'
     return body
   }
